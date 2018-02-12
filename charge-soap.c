@@ -175,8 +175,11 @@ main (int argc, char *argv[])
             soap_params[i][j].file_size = file_size;
             soap_params[i][j].url = url;
             soap_params[i][j].is_read = 'n';
-	    soap_params[i][j].data = malloc((file_size+1)*sizeof(char));
-	    strncpy(soap_params[i][j].data, soap_file, (file_size+1));
+
+	    // Copy data in soap_params
+	    //soap_params[i][j].data = malloc((file_size+1)*sizeof(char));
+	    //strncpy(soap_params[i][j].data, soap_file, (file_size+1));
+            soap_params[i][j].data = soap_file;
         }
     }
     i=0; j=0;
