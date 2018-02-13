@@ -19,6 +19,8 @@
 #define DEFAULT_FILE "soap.xml"
 #define MAX_MANDATORY_ARGS 2
 #define MAX_FILESIZE 100000
+#define MAX_RESULT_CODE 1000
+#define CURL_TIMEOUT 15
 
 
 
@@ -28,6 +30,7 @@ typedef struct
    char *data;            // soap data loaded from soap file
    char *url;             // soap URL
    char is_read;          // tells if data is read : 'y' / 'n'
+   long http_code;        // result of soap operation
 }
 s_soap_param;
 
@@ -55,6 +58,33 @@ getBasicArguments( int nb_args, char *args[], int *nb_iter, int *nb_thr, char **
 	{
           *url = args[4];
 	}
+    }
+}
+
+void
+print_status_code(s_soap_param **soap_params, int nb_iterations, int nb_threads)
+{
+    int i,j, k;
+    int result[MAX_RESULT_CODE] = { 0 };
+    for ( k=0 ; k < MAX_RESULT_CODE ; k++ )
+    {
+        for ( i=0 ; i < nb_iterations ; i++ )
+        {
+            for (j = 0; j < nb_threads; j++)
+            {
+                if(k == soap_params[i][j].http_code)
+		{
+                    result[k]++;
+		}
+            }
+        }
+    }
+    for ( k=0 ; k < MAX_RESULT_CODE ; k++ )
+    {
+        if(result[k] > 0)
+        {
+            printf("http code %d: %d occurrences\n",k,result[k]);
+        }
     }
 }
 
@@ -106,13 +136,20 @@ sendMessage (void *soap_param) {
         curl_easy_setopt(curl, CURLOPT_HTTPHEADER, header);
         curl_easy_setopt(curl, CURLOPT_POSTFIELDSIZE_LARGE, (curl_off_t)-1);
 //        curl_easy_setopt(curl, CURLOPT_CUSTOMREQUEST, "POST");
-//        curl_easy_setopt(curl, CURLOPT_VERBOSE,1L);
-        curl_easy_setopt(curl, CURLOPT_VERBOSE,0);
+//        curl_easy_setopt(curl, CURLOPT_VERBOSE, 1L);
+        curl_easy_setopt(curl, CURLOPT_NOSIGNAL, 1);
+        curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, CURL_TIMEOUT);
+        curl_easy_setopt(curl, CURLOPT_FAILONERROR, 1L);
+        curl_easy_setopt(curl, CURLOPT_VERBOSE, 0);
         res = curl_easy_perform(curl);
+	if(res != CURLE_ABORTED_BY_CALLBACK) {
+            curl_easy_getinfo (curl, CURLINFO_RESPONSE_CODE, &param->http_code);
+        }
 
         curl_easy_cleanup(curl);
 
     }
+    return NULL;
 }
 
 int
@@ -152,7 +189,7 @@ main (int argc, char *argv[])
     file_size = buf.st_size;
     close(fd);
     if( file_size < 0 || file_size > MAX_FILESIZE ) {
-        printf("File too big: %lld / %lld\n", file_size, MAX_FILESIZE);
+        printf("File too big: %lld / %d\n", file_size, MAX_FILESIZE);
         exit(1);
     }
     // Get file into memory (pointed by soap_file)
@@ -180,6 +217,7 @@ main (int argc, char *argv[])
 	    //soap_params[i][j].data = malloc((file_size+1)*sizeof(char));
 	    //strncpy(soap_params[i][j].data, soap_file, (file_size+1));
             soap_params[i][j].data = soap_file;
+            soap_params[i][j].http_code = 0;
         }
     }
     i=0; j=0;
@@ -201,7 +239,7 @@ main (int argc, char *argv[])
     
            if (ret)
            {
-              fprintf (stderr, "thread error: %s", strerror (ret));
+              fprintf (stderr, "thread error: %s\n", strerror (ret));
            }
         }
     
@@ -218,6 +256,7 @@ main (int argc, char *argv[])
            ((double)tend.tv_sec + 1.0e-9*tend.tv_nsec) - 
            ((double)tstart.tv_sec + 1.0e-9*tstart.tv_nsec));
 
+    print_status_code(soap_params, nb_iterations, nb_threads );
 
     exit( EXIT_SUCCESS );
 
