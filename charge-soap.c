@@ -177,7 +177,7 @@ main (int argc, char *argv[])
     getBasicArguments(argc, argv, &nb_iterations, &nb_threads, &file, &url);
 
     // declare array of threads
-    pthread_t thread_soap[nb_threads];
+    pthread_t thread_soap[nb_iterations][nb_threads];
 
     // Get file size
     int fd = open(file, O_RDONLY );
@@ -233,7 +233,7 @@ main (int argc, char *argv[])
         for (j = 0; j < nb_threads; j++)
         {
            ret = pthread_create (
-              &thread_soap[i], NULL,
+              &thread_soap[i][j], NULL,
               &sendMessage, (void *) &(soap_params[i][j])
            );
     
@@ -245,7 +245,7 @@ main (int argc, char *argv[])
     
         for (j = 0; j < nb_threads; j++)
         {
-            pthread_join (thread_soap[i], NULL);
+            pthread_join (thread_soap[i][j], NULL);
         }
     
     }
