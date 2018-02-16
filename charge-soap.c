@@ -147,6 +147,7 @@ sendMessage (void *soap_param) {
         }
 
         curl_easy_cleanup(curl);
+	curl_slist_free_all(header);
 
     }
     return NULL;
@@ -206,6 +207,7 @@ main (int argc, char *argv[])
 
     // save useful params into struct
     s_soap_param **soap_params = (s_soap_param**) malloc((sizeof(s_soap_param*) * nb_iterations));
+
     for( i=0 ; i<nb_iterations ; i++) {
         soap_params[i] = (s_soap_param*) malloc((sizeof(s_soap_param) * nb_threads));
         for(j=0 ; j<nb_threads ; j++) {
@@ -216,6 +218,7 @@ main (int argc, char *argv[])
 	    // Copy data in soap_params
 	    //soap_params[i][j].data = malloc((file_size+1)*sizeof(char));
 	    //strncpy(soap_params[i][j].data, soap_file, (file_size+1));
+	    // [or] Use the same file for all datas
             soap_params[i][j].data = soap_file;
             soap_params[i][j].http_code = 0;
         }
@@ -257,6 +260,11 @@ main (int argc, char *argv[])
            ((double)tstart.tv_sec + 1.0e-9*tstart.tv_nsec));
 
     print_status_code(soap_params, nb_iterations, nb_threads );
+
+    for( i=0 ; i<nb_iterations ; i++)
+        free(soap_params[i]);
+    free(soap_params);
+    free(soap_file);
 
     exit( EXIT_SUCCESS );
 

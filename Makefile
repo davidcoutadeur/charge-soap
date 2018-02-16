@@ -2,7 +2,7 @@ src=$(wildcard *.c)
 obj=$(src:.c=.o)
 
 CC=gcc
-CFLAGS=-Wall -D_REENTRANT -I. -I/usr/local/lib
+CFLAGS=-std=c99 -Wall -D_REENTRANT -I. -I/usr/local/lib -g
 LDFLAGS=-lcurl -lpthread -lrt
 
 
