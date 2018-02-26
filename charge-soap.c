@@ -225,6 +225,9 @@ main (int argc, char *argv[])
     }
     i=0; j=0;
 
+    /* Must initialize libcurl before any threads are started */
+    curl_global_init(CURL_GLOBAL_ALL);
+
     // start charge test
 
     clock_gettime(CLOCK_MONOTONIC, &tstart);
