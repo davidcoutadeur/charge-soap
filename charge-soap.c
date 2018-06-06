@@ -20,28 +20,32 @@
 #define MAX_MANDATORY_ARGS 2
 #define MAX_FILESIZE 100000
 #define MAX_RESULT_CODE 1000
+#define MAX_RES_SIZE 8192
 #define CURL_TIMEOUT 15
 
 
 
 typedef struct
 {
-   long long file_size;   // soap file size
-   char *data;            // soap data loaded from soap file
-   char *url;             // soap URL
-   char is_read;          // tells if data is read : 'y' / 'n'
-   long http_code;        // result of soap operation
+   long long file_size;       // soap file size
+   char *data;                // soap data loaded from soap file
+   char *url;                 // soap URL
+   char is_read;              // tells if data is read : 'y' / 'n'
+   long http_code;            // result of soap operation
+   char result[MAX_RES_SIZE]; // result data
 }
 s_soap_param;
 
 
 void
-getBasicArguments( int nb_args, char *args[], int *nb_iter, int *nb_thr, char **file, char **url )
+getBasicArguments( int nb_args, char *args[], int *nb_iter, int *nb_thr, char **file, char **url, char *display_results )
 {
-    if( nb_args < ( MAX_MANDATORY_ARGS + 1 ) ) /* program name (args[0]) + 4 arguments */
+    if( nb_args < ( MAX_MANDATORY_ARGS + 1 ) ) /* program name (args[0]) + 2 arguments */
     {
-        printf("USAGE: %s iterations threads file url\n\n", args[0]);
+        printf("USAGE: %s iterations threads [file] [url] [display_result]\n\n", args[0]);
         printf("Launches [threads] threads [iterations] times, each thread making a soap operation described in file [file] to [url]\n");
+        printf("iterations and threads are mandatory, and file, url and display_result are optional");
+        printf("If last parameter display_result is passed, results are displayed (can be slow)\n");
         printf("EXAMPLE:\n");
         printf("%s 10 100 soap.xml http://example.com\n\n", args[0]);
         exit( 0 );
@@ -57,6 +61,10 @@ getBasicArguments( int nb_args, char *args[], int *nb_iter, int *nb_thr, char **
 	if( nb_args >= ( MAX_MANDATORY_ARGS + 3 ) )
 	{
           *url = args[4];
+	}
+	if( nb_args >= ( MAX_MANDATORY_ARGS + 4 ) )
+	{
+          (*display_results) = 't';
 	}
     }
 }
@@ -88,12 +96,28 @@ print_status_code(s_soap_param **soap_params, int nb_iterations, int nb_threads)
     }
 }
 
+void
+print_results(s_soap_param **soap_params, int nb_iterations, int nb_threads)
+{
+    int i,j;
+
+    for ( i=0 ; i < nb_iterations ; i++ )
+    {
+        for ( j = 0; j < nb_threads; j++ )
+        {
+             printf("iteration: %d | thread: %d | result: %s\n", i, j, soap_params[i][j].result);
+        }
+    }
+}
+
 size_t
 write_data(void *ptr, size_t size, size_t nmeb, void *stream)
 {
+    // for writing in a file:
     //return fwrite(ptr,size,nmeb,stream);
-    // do not write anything back
-    return nmeb;
+    s_soap_param *param = (s_soap_param*) stream;
+    strncat(param->result, ptr, (nmeb*size));
+    return (nmeb*size);
 }
 
 
@@ -132,15 +156,15 @@ sendMessage (void *soap_param) {
         curl_easy_setopt(curl, CURLOPT_READFUNCTION, read_data);  //Reads xml file to be sent via POST operation
         curl_easy_setopt(curl, CURLOPT_READDATA, param); 
         curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_data);  //Gets data to be written to file
-        //curl_easy_setopt(curl, CURLOPT_WRITEDATA, wfp);  //Writes result to file
+        curl_easy_setopt(curl, CURLOPT_WRITEDATA, param);  //Writes result to file
         curl_easy_setopt(curl, CURLOPT_HTTPHEADER, header);
         curl_easy_setopt(curl, CURLOPT_POSTFIELDSIZE_LARGE, (curl_off_t)-1);
 //        curl_easy_setopt(curl, CURLOPT_CUSTOMREQUEST, "POST");
 //        curl_easy_setopt(curl, CURLOPT_VERBOSE, 1L);
+        curl_easy_setopt(curl, CURLOPT_VERBOSE, 0);
         curl_easy_setopt(curl, CURLOPT_NOSIGNAL, 1);
         curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, CURL_TIMEOUT);
-        curl_easy_setopt(curl, CURLOPT_FAILONERROR, 1L);
-        curl_easy_setopt(curl, CURLOPT_VERBOSE, 0);
+        //curl_easy_setopt(curl, CURLOPT_FAILONERROR, 1L);
         res = curl_easy_perform(curl);
 	if(res != CURLE_ABORTED_BY_CALLBACK) {
             curl_easy_getinfo (curl, CURLINFO_RESPONSE_CODE, &param->http_code);
@@ -164,6 +188,7 @@ main (int argc, char *argv[])
     int nb_threads;
     int i;
     int ret;
+    char display_results = 'f';
 
     /* file and url parameters */
     char *file = DEFAULT_FILE;
@@ -175,7 +200,7 @@ main (int argc, char *argv[])
     /* time parameters */
     struct timespec tstart={0,0}, tend={0,0}; 
 
-    getBasicArguments(argc, argv, &nb_iterations, &nb_threads, &file, &url);
+    getBasicArguments(argc, argv, &nb_iterations, &nb_threads, &file, &url, &display_results);
 
     // declare array of threads
     pthread_t thread_soap[nb_iterations][nb_threads];
@@ -221,6 +246,7 @@ main (int argc, char *argv[])
 	    // [or] Use the same file for all datas
             soap_params[i][j].data = soap_file;
             soap_params[i][j].http_code = 0;
+            strcpy(soap_params[i][j].result,"");
         }
     }
     i=0; j=0;
@@ -263,6 +289,10 @@ main (int argc, char *argv[])
            ((double)tstart.tv_sec + 1.0e-9*tstart.tv_nsec));
 
     print_status_code(soap_params, nb_iterations, nb_threads );
+    if(display_results == 't')
+    {
+        print_results(soap_params, nb_iterations, nb_threads );
+    }
 
     for( i=0 ; i<nb_iterations ; i++)
         free(soap_params[i]);
