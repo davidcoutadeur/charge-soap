@@ -16,7 +16,9 @@
 #include <curl/curl.h> // curl library for making http request
 
 #define DEFAULT_URL "http://example.com"
+#define MAX_URL_LENGTH 100
 #define DEFAULT_FILE "soap.xml"
+#define MAX_FILE_LENGTH 30
 #define MAX_MANDATORY_ARGS 2
 #define MAX_FILESIZE 100000
 #define MAX_RESULT_CODE 1000
@@ -92,8 +94,9 @@ getOption ( char option, int nb_params, char *params[] )
 }
 
 void
-getBasicArguments( int nb_params, char *params[], int *nb_iter, int *nb_thr, char **file, char **url, char *display_results )
+getBasicArguments( int nb_params, char *params[], int *nb_iter, int *nb_thr, char ***file, char ***url, char *display_results )
 {
+    int i;
     int nb_args = countArguments(nb_params, params);
     int nb_opts = (nb_params - 1) - nb_args;
     if( nb_args < MAX_MANDATORY_ARGS )
@@ -114,14 +117,30 @@ getBasicArguments( int nb_params, char *params[], int *nb_iter, int *nb_thr, cha
     {
         *nb_iter = atoi( getArgument(1, nb_params, params) );
         *nb_thr = atoi(getArgument(2, nb_params, params));
-	if( nb_args >= ( MAX_MANDATORY_ARGS + 1 ) )
-	{
-            *file = getArgument(3, nb_params, params);
-	}
-	if( nb_args >= ( MAX_MANDATORY_ARGS + 2 ) )
+
+	/* allocation */
+        *file = (char**)malloc((sizeof(char*) * ((nb_args - MAX_MANDATORY_ARGS + 1) / 2) ));
+        *url = (char**)malloc((sizeof(char*) * ((nb_args - MAX_MANDATORY_ARGS + 1) / 2) ));
+	for ( i = 0 ; i < ((nb_args - MAX_MANDATORY_ARGS + 1) / 2) ; i++ )
         {
-            *url = getArgument(4, nb_params, params);
+            (*file)[i] = (char*)malloc((sizeof(char) * MAX_FILE_LENGTH));
+            (*url)[i] =  (char*)malloc((sizeof(char) * MAX_URL_LENGTH));
+	    /* default value */
+            strcpy((*file)[i],DEFAULT_FILE);
+            strcpy((*url)[i],DEFAULT_URL);
         }
+
+	/* fill array with user input values */
+	for( i = 0 ; i < ((nb_args - MAX_MANDATORY_ARGS + 1) / 2) ; i++ )
+        {
+            (*file)[i] = getArgument(( (2*i) + MAX_MANDATORY_ARGS + 1), nb_params, params);
+	}
+	for( i = 0 ; i < ((nb_args - MAX_MANDATORY_ARGS ) / 2) ; i++ )
+        {
+            (*url)[i] = getArgument(( (2*i) + MAX_MANDATORY_ARGS + 2 ), nb_params, params);
+	}
+
+	/* fill verbose option */
 	if( nb_opts > 0 )
 	{
             (*display_results) = getOption('v', nb_params, params);
@@ -251,8 +270,8 @@ main (int argc, char *argv[])
     char display_results = 'f';
 
     /* file and url parameters */
-    char *file = DEFAULT_FILE;
-    char *url = DEFAULT_URL;
+    char **file = NULL;
+    char **url = NULL;
     struct stat buf; // for storing file statistics
     long long file_size;
     char *soap_file; // pointer to file in memory
@@ -266,7 +285,7 @@ main (int argc, char *argv[])
     pthread_t thread_soap[nb_iterations][nb_threads];
 
     // Get file size
-    int fd = open(file, O_RDONLY );
+    int fd = open(file[0], O_RDONLY );
     if(!fd) {
         perror("Read File Open:");
         exit(1);
@@ -279,7 +298,7 @@ main (int argc, char *argv[])
         exit(1);
     }
     // Get file into memory (pointed by soap_file)
-    FILE * rfd = fopen(file, "r");
+    FILE * rfd = fopen(file[0], "r");
     if(!rfd) {
         perror("Read File Open:");
         exit(1);
@@ -288,7 +307,7 @@ main (int argc, char *argv[])
     fread(soap_file,file_size,1,rfd);
     soap_file[file_size]='\0';
     fclose(rfd);
-    printf("Loading file %s\n%s\n\n", file, soap_file);
+    printf("Loading file %s\n%s\n\n", file[0], soap_file);
 
     // save useful params into struct
     s_soap_param **soap_params = (s_soap_param**) malloc((sizeof(s_soap_param*) * nb_iterations));
@@ -297,7 +316,7 @@ main (int argc, char *argv[])
         soap_params[i] = (s_soap_param*) malloc((sizeof(s_soap_param) * nb_threads));
         for(j=0 ; j<nb_threads ; j++) {
             soap_params[i][j].file_size = file_size;
-            soap_params[i][j].url = url;
+            soap_params[i][j].url = url[0];
             soap_params[i][j].is_read = 'n';
 
 	    // Copy data in soap_params
