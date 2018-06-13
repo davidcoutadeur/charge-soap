@@ -37,34 +37,94 @@ typedef struct
 s_soap_param;
 
 
-void
-getBasicArguments( int nb_args, char *args[], int *nb_iter, int *nb_thr, char **file, char **url, char *display_results )
+int
+countArguments ( int nb_params, char *params[] )
 {
-    if( nb_args < ( MAX_MANDATORY_ARGS + 1 ) ) /* program name (args[0]) + 2 arguments */
+    int i;
+    int res = 0;
+    for ( i=0; i < nb_params ; i++ )
     {
-        printf("USAGE: %s iterations threads [file] [url] [display_result]\n\n", args[0]);
-        printf("Launches [threads] threads [iterations] times, each thread making a soap operation described in file [file] to [url]\n");
-        printf("iterations and threads are mandatory, and file, url and display_result are optional");
-        printf("If last parameter display_result is passed, results are displayed (can be slow)\n");
+        if (params[i][0] != '-')
+        {
+            res++;
+        }
+    }
+    /* program name (params[0]) + n arguments */
+    return (res - 1);
+}
+
+char*
+getArgument ( int arg, int nb_params, char *params[] )
+{
+    int i = 1;
+    int pos_arg = 0;
+    while( i < nb_params )
+    {
+        if (params[i][0] != '-')
+        {
+            pos_arg++;
+            if ( pos_arg == arg )
+            {
+                return params[i];
+            }
+        }
+	i++;
+    }
+    return NULL;
+}
+
+char
+getOption ( char option, int nb_params, char *params[] )
+{
+    int i = 1;
+    while( i < nb_params )
+    {
+        if (params[i][0] == '-')
+        {
+            if ( strlen(params[i]) >= 2 && params[i][1] == option )
+            {
+                return 't'; // return true
+            }
+        }
+	i++;
+    }
+    return 'f';
+}
+
+void
+getBasicArguments( int nb_params, char *params[], int *nb_iter, int *nb_thr, char **file, char **url, char *display_results )
+{
+    int nb_args = countArguments(nb_params, params);
+    int nb_opts = (nb_params - 1) - nb_args;
+    if( nb_args < MAX_MANDATORY_ARGS )
+    {
+        printf("USAGE: %s [-v] iterations threads [file] [url] [[file2] [url2]...]\n\n", params[0]);
+        printf("ARGUMENTS\n");
+        printf(" * iterations (integer, mandatory): number of iterations the soap request is to be launched\n");
+        printf(" * threads (integer, mandatory): number of threads for each iteration (total requests = iterations * threads\n");
+        printf(" * file (string, optional): soap file containing the soap request (default %s)\n", DEFAULT_FILE);
+        printf(" * url (string, optional): where to send the soap request (default %s)\n", DEFAULT_URL);
+        printf("OPTIONS\n");
+        printf(" * -v: verbose mode. display all results, can be slow\n");
         printf("EXAMPLE:\n");
-        printf("%s 10 100 soap.xml http://example.com\n\n", args[0]);
+        printf("%s 10 100 soap.xml http://example.com\n\n", params[0]);
         exit( 0 );
     }
     else
     {
-        *nb_iter = atoi(args[1]);
-        *nb_thr = atoi(args[2]);
+        *nb_iter = atoi( getArgument(1, nb_params, params) );
+        *nb_thr = atoi(getArgument(2, nb_params, params));
+	if( nb_args >= ( MAX_MANDATORY_ARGS + 1 ) )
+	{
+            *file = getArgument(3, nb_params, params);
+	}
 	if( nb_args >= ( MAX_MANDATORY_ARGS + 2 ) )
+        {
+            *url = getArgument(4, nb_params, params);
+        }
+	if( nb_opts > 0 )
 	{
-          *file = args[3];
-	}
-	if( nb_args >= ( MAX_MANDATORY_ARGS + 3 ) )
-	{
-          *url = args[4];
-	}
-	if( nb_args >= ( MAX_MANDATORY_ARGS + 4 ) )
-	{
-          (*display_results) = 't';
+            (*display_results) = getOption('v', nb_params, params);
 	}
     }
 }
