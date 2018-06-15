@@ -334,7 +334,7 @@ main (int argc, char *argv[])
         fread(soap_file[n],file_size[n],1,rfd);
         soap_file[n][(file_size[n])]='\0';
         fclose(rfd);
-        printf("\nLoading file %s\n%s\n", file[n], soap_file[n]);
+        printf("\nLoading file %s for url %s\n%s\n", file[n], url[n], soap_file[n]);
     
         // save useful params into struct
         soap_params[n] = malloc((sizeof(s_soap_param*) * nb_iterations));
@@ -343,7 +343,7 @@ main (int argc, char *argv[])
             soap_params[n][i] = malloc((sizeof(s_soap_param) * nb_threads));
             for(j=0 ; j<nb_threads ; j++) {
                 soap_params[n][i][j].file_size = file_size[n];
-                soap_params[n][i][j].url = url[0];
+                soap_params[n][i][j].url = url[n];
                 soap_params[n][i][j].is_read = 'n';
     
     	    // Copy data in soap_params
