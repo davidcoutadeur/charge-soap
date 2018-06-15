@@ -94,7 +94,7 @@ getOption ( char option, int nb_params, char *params[] )
 }
 
 void
-getBasicArguments( int nb_params, char *params[], int *nb_iter, int *nb_thr, char ***file, char ***url, char *display_results )
+getBasicArguments( int nb_params, char *params[], int *nb_iter, int *nb_thr, char ***file, char ***url, char *display_results, int *nb_files )
 {
     int i;
     int nb_args = countArguments(nb_params, params);
@@ -121,6 +121,7 @@ getBasicArguments( int nb_params, char *params[], int *nb_iter, int *nb_thr, cha
 	/* allocation */
         *file = (char**)malloc((sizeof(char*) * ((nb_args - MAX_MANDATORY_ARGS + 1) / 2) ));
         *url = (char**)malloc((sizeof(char*) * ((nb_args - MAX_MANDATORY_ARGS + 1) / 2) ));
+	*nb_files = ((nb_args - MAX_MANDATORY_ARGS + 1) / 2);
 	for ( i = 0 ; i < ((nb_args - MAX_MANDATORY_ARGS + 1) / 2) ; i++ )
         {
             (*file)[i] = (char*)malloc((sizeof(char) * MAX_FILE_LENGTH));
@@ -149,20 +150,23 @@ getBasicArguments( int nb_params, char *params[], int *nb_iter, int *nb_thr, cha
 }
 
 void
-print_status_code(s_soap_param **soap_params, int nb_iterations, int nb_threads)
+print_status_code(s_soap_param ***soap_params, int nb_files, int nb_iterations, int nb_threads)
 {
-    int i,j, k;
+    int n,i,j, k;
     int result[MAX_RESULT_CODE] = { 0 };
     for ( k=0 ; k < MAX_RESULT_CODE ; k++ )
     {
-        for ( i=0 ; i < nb_iterations ; i++ )
+        for ( n=0 ; n < nb_files ; n++ )
         {
-            for (j = 0; j < nb_threads; j++)
+            for ( i=0 ; i < nb_iterations ; i++ )
             {
-                if(k == soap_params[i][j].http_code)
-		{
-                    result[k]++;
-		}
+                for (j = 0; j < nb_threads; j++)
+                {
+                    if(k == soap_params[n][i][j].http_code)
+                    {
+                        result[k]++;
+                    }
+                }
             }
         }
     }
@@ -176,15 +180,19 @@ print_status_code(s_soap_param **soap_params, int nb_iterations, int nb_threads)
 }
 
 void
-print_results(s_soap_param **soap_params, int nb_iterations, int nb_threads)
+print_results(s_soap_param ***soap_params, int nb_files, int nb_iterations, int nb_threads)
 {
-    int i,j;
+    int n,i,j;
 
-    for ( i=0 ; i < nb_iterations ; i++ )
+    printf("\n\nResults:\n\n");
+    for ( n=0 ; n < nb_files ; n++ )
     {
-        for ( j = 0; j < nb_threads; j++ )
+        for ( i=0 ; i < nb_iterations ; i++ )
         {
-             printf("iteration: %d | thread: %d | result: %s\n", i, j, soap_params[i][j].result);
+            for ( j = 0; j < nb_threads; j++ )
+            {
+                 printf("file[%d]: iteration: %d | thread: %d | result: %s\n", n, i, j, soap_params[n][i][j].result);
+            }
         }
     }
 }
@@ -270,65 +278,85 @@ main (int argc, char *argv[])
     char display_results = 'f';
 
     /* file and url parameters */
+    int n;
     char **file = NULL;
     char **url = NULL;
     struct stat buf; // for storing file statistics
-    long long file_size;
-    char *soap_file; // pointer to file in memory
+    long long *file_size; // array of file sizes
+    char **soap_file; // array of soap files
+    int nb_files = 0;
+    int fd;     // for computing file size
+    FILE * rfd; // for reading file in memory
+
+    /* structure of soap params */
+    s_soap_param ***soap_params; // array[files][iterations][threads]
 
     /* time parameters */
     struct timespec tstart={0,0}, tend={0,0}; 
 
-    getBasicArguments(argc, argv, &nb_iterations, &nb_threads, &file, &url, &display_results);
+
+
+    getBasicArguments(argc, argv, &nb_iterations, &nb_threads, &file, &url, &display_results, &nb_files);
 
     // declare array of threads
-    pthread_t thread_soap[nb_iterations][nb_threads];
+    pthread_t thread_soap[nb_files][nb_iterations][nb_threads];
 
-    // Get file size
-    int fd = open(file[0], O_RDONLY );
-    if(!fd) {
-        perror("Read File Open:");
-        exit(1);
-    }
-    fstat(fd, &buf);
-    file_size = buf.st_size;
-    close(fd);
-    if( file_size < 0 || file_size > MAX_FILESIZE ) {
-        printf("File too big: %lld / %d\n", file_size, MAX_FILESIZE);
-        exit(1);
-    }
-    // Get file into memory (pointed by soap_file)
-    FILE * rfd = fopen(file[0], "r");
-    if(!rfd) {
-        perror("Read File Open:");
-        exit(1);
-    }
-    soap_file = malloc((file_size+1)*sizeof(char));
-    fread(soap_file,file_size,1,rfd);
-    soap_file[file_size]='\0';
-    fclose(rfd);
-    printf("Loading file %s\n%s\n\n", file[0], soap_file);
+    /* allocate some resources */
+    // allocate array of files
+    file_size = malloc((sizeof(long long) * nb_files));
+    // allocate array of soap files
+    soap_file = malloc((sizeof(char*) * nb_files));
+    // allocate array of soap_params
+    soap_params = malloc((sizeof(s_soap_param**) * nb_files));
 
-    // save useful params into struct
-    s_soap_param **soap_params = (s_soap_param**) malloc((sizeof(s_soap_param*) * nb_iterations));
-
-    for( i=0 ; i<nb_iterations ; i++) {
-        soap_params[i] = (s_soap_param*) malloc((sizeof(s_soap_param) * nb_threads));
-        for(j=0 ; j<nb_threads ; j++) {
-            soap_params[i][j].file_size = file_size;
-            soap_params[i][j].url = url[0];
-            soap_params[i][j].is_read = 'n';
-
-	    // Copy data in soap_params
-	    //soap_params[i][j].data = malloc((file_size+1)*sizeof(char));
-	    //strncpy(soap_params[i][j].data, soap_file, (file_size+1));
-	    // [or] Use the same file for all datas
-            soap_params[i][j].data = soap_file;
-            soap_params[i][j].http_code = 0;
-            strcpy(soap_params[i][j].result,"");
+    for(n=0 ; n < nb_files ; n++)
+    {
+        // Get file size
+        fd = open(file[n], O_RDONLY );
+        if(!fd) {
+            perror("Read File Open:");
+            exit(1);
+        }
+        fstat(fd, &buf);
+        file_size[n] = buf.st_size;
+        close(fd);
+        if( (file_size[n])< 0 || (file_size[n]) > MAX_FILESIZE ) {
+            printf("File too big: %lld / %d\n", file_size[n], MAX_FILESIZE);
+            exit(1);
+        }
+        // Get file into memory (pointed by soap_file)
+        rfd = fopen(file[n], "r");
+        if(!rfd) {
+            perror("Read File Open:");
+            exit(1);
+        }
+        soap_file[n] = malloc(((file_size[n])+1)*sizeof(char));
+        fread(soap_file[n],file_size[n],1,rfd);
+        soap_file[n][(file_size[n])]='\0';
+        fclose(rfd);
+        printf("\nLoading file %s\n%s\n", file[n], soap_file[n]);
+    
+        // save useful params into struct
+        soap_params[n] = malloc((sizeof(s_soap_param*) * nb_iterations));
+    
+        for( i=0 ; i<nb_iterations ; i++) {
+            soap_params[n][i] = malloc((sizeof(s_soap_param) * nb_threads));
+            for(j=0 ; j<nb_threads ; j++) {
+                soap_params[n][i][j].file_size = file_size[n];
+                soap_params[n][i][j].url = url[0];
+                soap_params[n][i][j].is_read = 'n';
+    
+    	    // Copy data in soap_params
+    	    //soap_params[n][i][j].data = malloc((file_size+1)*sizeof(char));
+    	    //strncpy(soap_params[n][i][j].data, soap_file[n], ((file_size[n])+1));
+    	    // [or] Use the same file for all datas
+                soap_params[n][i][j].data = soap_file[n];
+                soap_params[n][i][j].http_code = 0;
+                strcpy(soap_params[n][i][j].result,"");
+            }
         }
     }
-    i=0; j=0;
+    n=0; i=0; j=0;
 
     /* Must initialize libcurl before any threads are started */
     curl_global_init(CURL_GLOBAL_ALL);
@@ -337,28 +365,31 @@ main (int argc, char *argv[])
 
     clock_gettime(CLOCK_MONOTONIC, &tstart);
 
-    for ( i=0 ; i < nb_iterations ; i++ )
+    for ( n=0 ; n < nb_files ; n++ )
     {
-
-        /* launch SOAP request in threads */
-        for (j = 0; j < nb_threads; j++)
+        for ( i=0 ; i < nb_iterations ; i++ )
         {
-           ret = pthread_create (
-              &thread_soap[i][j], NULL,
-              &sendMessage, (void *) &(soap_params[i][j])
-           );
     
-           if (ret)
-           {
-              fprintf (stderr, "thread error: %s\n", strerror (ret));
-           }
+            /* launch SOAP request in threads */
+            for (j = 0; j < nb_threads; j++)
+            {
+               ret = pthread_create (
+                  &thread_soap[n][i][j], NULL,
+                  &sendMessage, (void *) &(soap_params[n][i][j])
+               );
+        
+               if (ret)
+               {
+                  fprintf (stderr, "thread error: %s\n", strerror (ret));
+               }
+            }
+        
+            for (j = 0; j < nb_threads; j++)
+            {
+                pthread_join (thread_soap[n][i][j], NULL);
+            }
+        
         }
-    
-        for (j = 0; j < nb_threads; j++)
-        {
-            pthread_join (thread_soap[i][j], NULL);
-        }
-    
     }
 
 
@@ -367,15 +398,23 @@ main (int argc, char *argv[])
            ((double)tend.tv_sec + 1.0e-9*tend.tv_nsec) - 
            ((double)tstart.tv_sec + 1.0e-9*tstart.tv_nsec));
 
-    print_status_code(soap_params, nb_iterations, nb_threads );
+    print_status_code(soap_params, nb_files, nb_iterations, nb_threads );
     if(display_results == 't')
     {
-        print_results(soap_params, nb_iterations, nb_threads );
+        print_results(soap_params, nb_files, nb_iterations, nb_threads );
     }
 
-    for( i=0 ; i<nb_iterations ; i++)
-        free(soap_params[i]);
+    // free soap_params
+    for(n=0 ; n < nb_files ; n++)
+        for( i=0 ; i<nb_iterations ; i++)
+            free(soap_params[n][i]);
+    for(n=0 ; n < nb_files ; n++)
+        free(soap_params[n]);
     free(soap_params);
+
+    // free soap_file
+    for(n=0 ; n < nb_files ; n++)
+        free(soap_file[n]);
     free(soap_file);
 
     exit( EXIT_SUCCESS );
